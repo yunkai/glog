@@ -521,9 +521,10 @@ It returns a buffer containing the formatted header and the user's file and line
 The depth specifies how many stack frames above lives the source line to be identified in the log message.
 
 Log lines have this form:
-	Lmmdd hh:mm:ss.uuuuuu threadid file:line] msg...
+	Lyyyymmdd hh:mm:ss.uuuuuu threadid file:line] msg...
 where the fields are defined as follows:
 	L                A single character, representing the log level (eg 'I' for INFO)
+	yyyy             The year
 	mm               The month (zero padded; ie May is '05')
 	dd               The day (zero padded)
 	hh:mm:ss.uuuuuu  Time in hours, minutes and fractional seconds
@@ -559,24 +560,25 @@ func (l *loggingT) formatHeader(s severity, file string, line int) *buffer {
 
 	// Avoid Fprintf, for speed. The format is so simple that we can do it quickly by hand.
 	// It's worth about 3X. Fprintf is hard.
-	_, month, day := now.Date()
+	year, month, day := now.Date()
 	hour, minute, second := now.Clock()
 	// Lmmdd hh:mm:ss.uuuuuu threadid file:line]
 	buf.tmp[0] = severityChar[s]
-	buf.twoDigits(1, int(month))
-	buf.twoDigits(3, day)
-	buf.tmp[5] = ' '
-	buf.twoDigits(6, hour)
-	buf.tmp[8] = ':'
-	buf.twoDigits(9, minute)
-	buf.tmp[11] = ':'
-	buf.twoDigits(12, second)
-	buf.tmp[14] = '.'
-	buf.nDigits(6, 15, now.Nanosecond()/1000, '0')
-	buf.tmp[21] = ' '
-	buf.nDigits(7, 22, pid, ' ') // TODO: should be TID
-	buf.tmp[29] = ' '
-	buf.Write(buf.tmp[:30])
+	buf.nDigits(4, 1, year, '0')
+	buf.twoDigits(5, int(month))
+	buf.twoDigits(7, day)
+	buf.tmp[9] = ' '
+	buf.twoDigits(10, hour)
+	buf.tmp[12] = ':'
+	buf.twoDigits(13, minute)
+	buf.tmp[15] = ':'
+	buf.twoDigits(16, second)
+	buf.tmp[18] = '.'
+	buf.nDigits(6, 19, now.Nanosecond()/1000, '0')
+	buf.tmp[25] = ' '
+	buf.nDigits(7, 26, pid, ' ') // TODO: should be TID
+	buf.tmp[33] = ' '
+	buf.Write(buf.tmp[:34])
 	buf.WriteString(file)
 	buf.tmp[0] = ':'
 	n := buf.someDigits(1, line)
@@ -839,15 +841,6 @@ func (sb *syncBuffer) rotateFile(now time.Time) error {
 	}
 
 	sb.Writer = bufio.NewWriterSize(sb.file, bufferSize)
-
-	// Write header.
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "Log file created at: %s\n", now.Format("2006/01/02 15:04:05"))
-	fmt.Fprintf(&buf, "Running on machine: %s\n", host)
-	fmt.Fprintf(&buf, "Binary: Built with %s %s for %s/%s\n", runtime.Compiler, runtime.Version(), runtime.GOOS, runtime.GOARCH)
-	fmt.Fprintf(&buf, "Log line format: [IWEF]mmdd hh:mm:ss.uuuuuu threadid file:line] msg\n")
-	n, err := sb.file.Write(buf.Bytes())
-	sb.nbytes += uint64(n)
 	return err
 }
 
