@@ -857,7 +857,7 @@ func (l *loggingT) createFile() error {
 	return nil
 }
 
-const flushInterval = 30 * time.Second
+const flushInterval = 3 * time.Second
 
 // flushDaemon periodically flushes the log file buffers.
 func (l *loggingT) flushDaemon() {
