@@ -437,7 +437,7 @@ type loggingT struct {
 	// used to synchronize logging.
 	mu sync.Mutex
 	// file holds writer for each of the log types.
-	file [numSeverity]flushSyncWriter
+	file flushSyncWriter
 	// pcs is used in V to avoid an allocation when computing the caller's PC.
 	pcs [1]uintptr
 	// vmap is a cache of the V Level for each V() call site, identified by PC.
@@ -687,24 +687,21 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
 		if alsoToStderr || l.alsoToStderr || s >= l.stderrThreshold.get() {
 			os.Stderr.Write(data)
 		}
-		if l.file[s] == nil {
-			if err := l.createFiles(s); err != nil {
+		if l.file == nil {
+			if err := l.createFile(); err != nil {
 				os.Stderr.Write(data) // Make sure the message appears somewhere.
 				l.exit(err)
 			}
 		}
 		switch s {
 		case fatalLog:
-			l.file[fatalLog].Write(data)
 			fallthrough
 		case errorLog:
-			l.file[errorLog].Write(data)
 			fallthrough
 		case warningLog:
-			l.file[warningLog].Write(data)
 			fallthrough
 		case infoLog:
-			l.file[infoLog].Write(data)
+			l.file.Write(data)
 		}
 	}
 	if s == fatalLog {
@@ -724,10 +721,8 @@ func (l *loggingT) output(s severity, buf *buffer, file string, line int, alsoTo
 		// Write the stack trace for all goroutines to the files.
 		trace := stacks(true)
 		logExitFunc = func(error) {} // If we get a write error, we'll still exit below.
-		for log := fatalLog; log >= infoLog; log-- {
-			if f := l.file[log]; f != nil { // Can be nil if -logtostderr is set.
-				f.Write(trace)
-			}
+		if f := l.file; f != nil {   // Can be nil if -logtostderr is set.
+			f.Write(trace)
 		}
 		l.mu.Unlock()
 		timeoutFlush(10 * time.Second)
@@ -805,7 +800,6 @@ type syncBuffer struct {
 	logger *loggingT
 	*bufio.Writer
 	file   *os.File
-	sev    severity
 	nbytes uint64 // The number of bytes written to this file
 }
 
@@ -834,7 +828,7 @@ func (sb *syncBuffer) rotateFile(now time.Time) error {
 		sb.file.Close()
 	}
 	var err error
-	sb.file, _, err = create(severityName[sb.sev], now)
+	sb.file, _, err = create(now)
 	sb.nbytes = 0
 	if err != nil {
 		return err
@@ -849,22 +843,17 @@ func (sb *syncBuffer) rotateFile(now time.Time) error {
 // on disk I/O. The flushDaemon will block instead.
 const bufferSize = 256 * 1024
 
-// createFiles creates all the log files for severity from sev down to infoLog.
+// createFiles creates log file.
 // l.mu is held.
-func (l *loggingT) createFiles(sev severity) error {
+func (l *loggingT) createFile() error {
 	now := time.Now()
-	// Files are created in decreasing severity order, so as soon as we find one
-	// has already been created, we can stop.
-	for s := sev; s >= infoLog && l.file[s] == nil; s-- {
-		sb := &syncBuffer{
-			logger: l,
-			sev:    s,
-		}
-		if err := sb.rotateFile(now); err != nil {
-			return err
-		}
-		l.file[s] = sb
+	sb := &syncBuffer{
+		logger: l,
 	}
+	if err := sb.rotateFile(now); err != nil {
+		return err
+	}
+	l.file = sb
 	return nil
 }
 
@@ -887,13 +876,10 @@ func (l *loggingT) lockAndFlushAll() {
 // flushAll flushes all the logs and attempts to "sync" their data to disk.
 // l.mu is held.
 func (l *loggingT) flushAll() {
-	// Flush from fatal down, in case there's trouble flushing.
-	for s := fatalLog; s >= infoLog; s-- {
-		file := l.file[s]
-		if file != nil {
-			file.Flush() // ignore error
-			file.Sync()  // ignore error
-		}
+	file := l.file
+	if file != nil {
+		file.Flush() // ignore error
+		file.Sync()  // ignore error
 	}
 }
 

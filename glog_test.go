@@ -55,29 +55,27 @@ func (f *flushBuffer) Sync() error {
 }
 
 // swap sets the log writers and returns the old array.
-func (l *loggingT) swap(writers [numSeverity]flushSyncWriter) (old [numSeverity]flushSyncWriter) {
+func (l *loggingT) swap(writer flushSyncWriter) (old flushSyncWriter) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	old = l.file
-	for i, w := range writers {
-		logging.file[i] = w
-	}
+	logging.file = writer
 	return
 }
 
 // newBuffers sets the log writers to all new byte buffers and returns the old array.
-func (l *loggingT) newBuffers() [numSeverity]flushSyncWriter {
-	return l.swap([numSeverity]flushSyncWriter{new(flushBuffer), new(flushBuffer), new(flushBuffer), new(flushBuffer)})
+func (l *loggingT) newBuffers() flushSyncWriter {
+	return l.swap(flushSyncWriter(new(flushBuffer)))
 }
 
 // contents returns the specified log value as a string.
-func contents(s severity) string {
-	return logging.file[s].(*flushBuffer).String()
+func contents() string {
+	return logging.file.(*flushBuffer).String()
 }
 
 // contains reports whether the string is contained in the log.
-func contains(s severity, str string, t *testing.T) bool {
-	return strings.Contains(contents(s), str)
+func contains(str string, t *testing.T) bool {
+	return strings.Contains(contents(), str)
 }
 
 // setFlags configures the logging flags how the test expects them.
@@ -90,10 +88,10 @@ func TestInfo(t *testing.T) {
 	setFlags()
 	defer logging.swap(logging.newBuffers())
 	Info("test")
-	if !contains(infoLog, "I", t) {
-		t.Errorf("Info has wrong character: %q", contents(infoLog))
+	if !contains("I", t) {
+		t.Errorf("Info has wrong character: %q", contents())
 	}
-	if !contains(infoLog, "test", t) {
+	if !contains("test", t) {
 		t.Error("Info failed")
 	}
 }
@@ -109,7 +107,7 @@ func TestInfoDepth(t *testing.T) {
 	InfoDepth(0, "depth-test0")
 	f()
 
-	msgs := strings.Split(strings.TrimSuffix(contents(infoLog), "\n"), "\n")
+	msgs := strings.Split(strings.TrimSuffix(contents(), "\n"), "\n")
 	if len(msgs) != 2 {
 		t.Fatalf("Got %d lines, expected 2", len(msgs))
 	}
@@ -161,10 +159,10 @@ func TestStandardLog(t *testing.T) {
 	setFlags()
 	defer logging.swap(logging.newBuffers())
 	stdLog.Print("test")
-	if !contains(infoLog, "I", t) {
-		t.Errorf("Info has wrong character: %q", contents(infoLog))
+	if !contains("I", t) {
+		t.Errorf("Info has wrong character: %q", contents())
 	}
-	if !contains(infoLog, "test", t) {
+	if !contains("test", t) {
 		t.Error("Info failed")
 	}
 }
@@ -181,56 +179,15 @@ func TestHeader(t *testing.T) {
 	Info("test")
 	var line int
 	format := "I20060102 15:04:05.067890    1234 glog_test.go:%d] test\n"
-	n, err := fmt.Sscanf(contents(infoLog), format, &line)
+	n, err := fmt.Sscanf(contents(), format, &line)
 	if n != 1 || err != nil {
-		t.Errorf("log format error: %d elements, error %s:\n%s", n, err, contents(infoLog))
+		t.Errorf("log format error: %d elements, error %s:\n%s", n, err, contents())
 	}
 	// Scanf treats multiple spaces as equivalent to a single space,
 	// so check for correct space-padding also.
 	want := fmt.Sprintf(format, line)
-	if contents(infoLog) != want {
-		t.Errorf("log format error: got:\n\t%q\nwant:\t%q", contents(infoLog), want)
-	}
-}
-
-// Test that an Error log goes to Warning and Info.
-// Even in the Info log, the source character will be E, so the data should
-// all be identical.
-func TestError(t *testing.T) {
-	setFlags()
-	defer logging.swap(logging.newBuffers())
-	Error("test")
-	if !contains(errorLog, "E", t) {
-		t.Errorf("Error has wrong character: %q", contents(errorLog))
-	}
-	if !contains(errorLog, "test", t) {
-		t.Error("Error failed")
-	}
-	str := contents(errorLog)
-	if !contains(warningLog, str, t) {
-		t.Error("Warning failed")
-	}
-	if !contains(infoLog, str, t) {
-		t.Error("Info failed")
-	}
-}
-
-// Test that a Warning log goes to Info.
-// Even in the Info log, the source character will be W, so the data should
-// all be identical.
-func TestWarning(t *testing.T) {
-	setFlags()
-	defer logging.swap(logging.newBuffers())
-	Warning("test")
-	if !contains(warningLog, "W", t) {
-		t.Errorf("Warning has wrong character: %q", contents(warningLog))
-	}
-	if !contains(warningLog, "test", t) {
-		t.Error("Warning failed")
-	}
-	str := contents(warningLog)
-	if !contains(infoLog, str, t) {
-		t.Error("Info failed")
+	if contents() != want {
+		t.Errorf("log format error: got:\n\t%q\nwant:\t%q", contents(), want)
 	}
 }
 
@@ -241,10 +198,10 @@ func TestV(t *testing.T) {
 	logging.verbosity.Set("2")
 	defer logging.verbosity.Set("0")
 	V(2).Info("test")
-	if !contains(infoLog, "I", t) {
-		t.Errorf("Info has wrong character: %q", contents(infoLog))
+	if !contains("I", t) {
+		t.Errorf("Info has wrong character: %q", contents())
 	}
-	if !contains(infoLog, "test", t) {
+	if !contains("test", t) {
 		t.Error("Info failed")
 	}
 }
@@ -265,10 +222,10 @@ func TestVmoduleOn(t *testing.T) {
 		t.Error("V enabled for 3")
 	}
 	V(2).Info("test")
-	if !contains(infoLog, "I", t) {
-		t.Errorf("Info has wrong character: %q", contents(infoLog))
+	if !contains("I", t) {
+		t.Errorf("Info has wrong character: %q", contents())
 	}
-	if !contains(infoLog, "test", t) {
+	if !contains("test", t) {
 		t.Error("Info failed")
 	}
 }
@@ -285,7 +242,7 @@ func TestVmoduleOff(t *testing.T) {
 		}
 	}
 	V(2).Info("test")
-	if contents(infoLog) != "" {
+	if contents() != "" {
 		t.Error("V logged incorrectly")
 	}
 }
@@ -337,7 +294,7 @@ func TestRollover(t *testing.T) {
 	MaxSize = 512
 
 	Info("x") // Be sure we have a file.
-	info, ok := logging.file[infoLog].(*syncBuffer)
+	info, ok := logging.file.(*syncBuffer)
 	if !ok {
 		t.Fatal("info wasn't created")
 	}
@@ -394,7 +351,7 @@ func TestLogBacktraceAt(t *testing.T) {
 		setTraceLocation(file, line, ok, +2) // Two lines between Caller and Info calls.
 		Info("we want a stack trace here")
 	}
-	numAppearances := strings.Count(contents(infoLog), infoLine)
+	numAppearances := strings.Count(contents(), infoLine)
 	if numAppearances < 2 {
 		// Need 2 appearances, one in the log header and one in the trace:
 		//   log_test.go:281: I0511 16:36:06.952398 02238 log_test.go:280] we want a stack trace here
@@ -403,7 +360,7 @@ func TestLogBacktraceAt(t *testing.T) {
 		//   ...
 		// We could be more precise but that would require knowing the details
 		// of the traceback format, which may not be dependable.
-		t.Fatal("got no trace back; log is ", contents(infoLog))
+		t.Fatal("got no trace back; log is ", contents())
 	}
 }
 

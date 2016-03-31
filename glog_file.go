@@ -78,14 +78,13 @@ func shortHostname(hostname string) string {
 	return hostname
 }
 
-// logName returns a new log file name containing tag, with start time t, and
-// the name for the symlink for tag.
-func logName(tag string, t time.Time) (name, link string) {
-	name = fmt.Sprintf("%s.%s.%s.log.%s.%04d%02d%02d-%02d%02d%02d.%d",
+// logName returns a new log file name, with start time t, and
+// the name for the symlink for that file.
+func logName(t time.Time) (name, link string) {
+	name = fmt.Sprintf("%s.LOG.%s.%s.%04d%02d%02d-%02d%02d%02d.%d",
 		program,
 		host,
 		userName,
-		tag,
 		t.Year(),
 		t.Month(),
 		t.Day(),
@@ -93,21 +92,20 @@ func logName(tag string, t time.Time) (name, link string) {
 		t.Minute(),
 		t.Second(),
 		pid)
-	return name, program + "." + tag
+	return name, program + ".LOG"
 }
 
 var onceLogDirs sync.Once
 
-// create creates a new log file and returns the file and its filename, which
-// contains tag ("INFO", "FATAL", etc.) and t.  If the file is created
-// successfully, create also attempts to update the symlink for that tag, ignoring
-// errors.
-func create(tag string, t time.Time) (f *os.File, filename string, err error) {
+// create creates a new log file and returns the file and its filename.
+// If the file is created successfully, create also attempts to update
+// the symlink for that file, ignoring errors.
+func create(t time.Time) (f *os.File, filename string, err error) {
 	onceLogDirs.Do(createLogDirs)
 	if len(logDirs) == 0 {
 		return nil, "", errors.New("log: no log dirs")
 	}
-	name, link := logName(tag, t)
+	name, link := logName(t)
 	var lastErr error
 	for _, dir := range logDirs {
 		fname := filepath.Join(dir, name)
